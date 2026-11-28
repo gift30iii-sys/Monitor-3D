@@ -5,71 +5,49 @@
 </style></head><body><div class="wrap">
 <header class="head"><div class="brand"><div class="logo">30</div><div><div class="h1">Monitor 30D</div><div class="sub">Pós-Manutenção · Acompanhamento preventivo</div></div></div><div class="actions"><button class="secondary" id="installBtn" onclick="installShortcut()">Adicionar à tela inicial</button><button class="secondary" onclick="exportData()">Exportar backup</button></div></header>
 <section class="cards"><div class="stat"><small>Em monitoramento</small><strong id="active">0</strong></div><div class="stat"><small>Checkpoint pendente</small><strong id="pending">0</strong></div><div class="stat"><small>Possíveis recorrências</small><strong id="repeat">0</strong></div><div class="stat"><small>Encerrados</small><strong id="closed">0</strong></div></section>
-<div class="grid"><section class="panel"><h2>Registrar manutenção</h2><form id="form"><div class="fields"><div><label>Número da SA *</label><input id="sa" required placeholder="Ex.: 123456"></div><div><label>Data da manutenção *</label><input id="date" type="date" required></div><div class="wide"><label>Endereço *</label><input id="address" required placeholder="Rua, bairro, cidade"></div><div><label>Número do imóvel</label><input id="house" placeholder="Ex.: 120"></div><div><label>Cliente (opcional)</label><input id="customer" placeholder="Nome do cliente"></div><div class="wide"><label>Observações</label><textarea id="notes" rows="2" placeholder="Serviço executado / observações"></textarea></div></div><div class="actions"><button type="submit">Adicionar monitoramento</button><button type="reset" class="secondary">Limpar</button></div></form><p class="sub">Os registros ficam salvos neste navegador/aparelho.</p></section>
+<div class="grid"><section class="panel"><h2>Registrar manutenção</h2><form id="form"><div class="fields"><div><label>Número da SA *</label><input id="sa" required placeholder="Ex.: 123456"></div><div><label>Data da manutenção *</label><input id="date" type="date" required></div>
+<div><label>Técnico *</label><input id="technician" required placeholder="Nome do técnico"></div><div><label>Cidade *</label><input id="city" required placeholder="Cidade"></div><div class="wide"><label>Endereço *</label><input id="address" required placeholder="Rua, bairro, cidade"></div><div><label>Número do imóvel</label><input id="house" placeholder="Ex.: 120"></div><div><label>Cliente (opcional)</label><input id="customer" placeholder="Nome do cliente"></div><div class="wide"><label>Observações</label><textarea id="notes" rows="2" placeholder="Serviço executado / observações"></textarea></div></div><div class="actions"><button type="submit">Adicionar monitoramento</button><button type="reset" class="secondary">Limpar</button></div></form><p class="sub" id="connectionStatus">Conectando à base online…</p></section>
 <section class="panel"><h2>Registros</h2><div class="toolbar"><input id="search" placeholder="Buscar SA, endereço ou imóvel..." oninput="render()"><select id="filter" onchange="render()"><option value="all">Todos</option><option value="active">Em monitoramento</option><option value="closed">Encerrados</option><option value="repeat">Possíveis recorrências</option></select></div><div id="records" class="list"></div></section></div>
 <div class="foot">Criado por Técnico Carlos Ivan · Supervisor Lucas Alberto<br>Monitoramento preventivo — não classifica IRR automaticamente.</div></div>
 <script>
-const KEY='monitor30d_v1';
-const $=id=>document.getElementById(id);
-let data=[];
-let installPrompt=null;
-const installBtn=$('installBtn');
-
-function loadData(){
-  try{
-    const raw=localStorage.getItem(KEY);
-    const parsed=raw?JSON.parse(raw):[];
-    data=Array.isArray(parsed)?parsed:[];
-  }catch(err){
-    console.error('Erro ao carregar registros:',err);
-    data=[];
-    alert('Não foi possível ler os registros salvos. O armazenamento pode estar corrompido.');
-  }
-}
-function save(){
-  try{
-    localStorage.setItem(KEY,JSON.stringify(data));
-    return true;
-  }catch(err){
-    console.error('Erro ao salvar:',err);
-    alert('Não foi possível salvar. Verifique se o navegador permite armazenamento e se há espaço disponível.');
-    return false;
-  }
-}
+const SUPABASE_URL='https://uotljbpftnhbzsrilouz.supabase.co';
+const SUPABASE_KEY='sb_publishable_7mguQ3moe-22I46JVodmFg_leFXCRLh';
+const TABLE='monitor_30d', KEY='monitor30d_v1';
+let data=[], installPrompt=null;
+const installBtn=document.getElementById('installBtn');
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;installBtn.style.display='inline-block'});
 window.addEventListener('appinstalled',()=>{installBtn.textContent='Atalho instalado';installBtn.disabled=true});
-async function installShortcut(){
-  if(installPrompt){installPrompt.prompt();const choice=await installPrompt.userChoice;if(choice.outcome==='accepted')installBtn.textContent='Instalado!';installPrompt=null}
-  else alert('Para adicionar: no Chrome, toque no menu ⋮ e escolha “Adicionar à tela inicial” ou “Instalar app”.');
-}
+async function installShortcut(){if(installPrompt){installPrompt.prompt();const choice=await installPrompt.userChoice;if(choice.outcome==='accepted'){installBtn.textContent='Instalado!'}installPrompt=null}else{alert('Para adicionar: no menu do navegador, escolha “Adicionar à tela inicial” ou “Instalar app”.')}}
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}
-const today=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10)};
-$('date').value=today();
-function daysSince(d){return Math.floor((new Date(today()+'T00:00:00')-new Date(d+'T00:00:00'))/86400000)}
-function dueCP(r){let elapsed=daysSince(r.date);return [0,15,30].map((d,i)=>({d,done:(r.checks||[])[i],due:elapsed>=d&&!(r.checks||[])[i]&&elapsed<=30}));}
-$('form').addEventListener('submit',e=>{
-  e.preventDefault();
-  const saValue=$('sa').value.trim(), dateValue=$('date').value, addressValue=$('address').value.trim();
-  if(!saValue||!dateValue||!addressValue){alert('Preencha SA, data e endereço.');return;}
-  const r={id:Date.now(),sa:saValue,date:dateValue,address:addressValue,house:$('house').value.trim(),customer:$('customer').value.trim(),notes:$('notes').value.trim(),checks:[false,false,false],closed:false,repeat:false};
-  data.unshift(r);
-  if(save()){e.target.reset();$('date').value=today();render();}
-});
-function mark(id,i){let r=data.find(x=>x.id===id);if(!r)return;r.checks=r.checks||[false,false,false];r.checks[i]=!r.checks[i];if(i===2&&r.checks[2])r.closed=true;if(i===2&&!r.checks[2])r.closed=false;save();render()}
-function toggleRepeat(id){let r=data.find(x=>x.id===id);if(!r)return;r.repeat=!r.repeat;save();render()}
-function remove(id){if(confirm('Excluir este registro?')){data=data.filter(x=>x.id!==id);save();render()}}
-function exportData(){let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='monitor30d-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
-function render(){
-  let q=$('search').value.toLowerCase(),f=$('filter').value;
-  let filtered=data.filter(r=>([r.sa,r.address,r.house,r.customer].join(' ').toLowerCase().includes(q))&&(f==='all'||(f==='active'&&!r.closed)||(f==='closed'&&r.closed)||(f==='repeat'&&r.repeat)));
-  $('active').textContent=data.filter(r=>!r.closed).length;
-  $('pending').textContent=data.filter(r=>!r.closed&&dueCP(r).some(c=>c.due)).length;
-  $('repeat').textContent=data.filter(r=>r.repeat).length;
-  $('closed').textContent=data.filter(r=>r.closed).length;
-  let el=$('records');
-  if(!filtered.length){el.innerHTML='<div class="empty">Nenhum registro encontrado.</div>';return}
-  el.innerHTML=filtered.map(r=>{let c=dueCP(r);return `<article class="item"><div class="itemtop"><div><div class="name">SA ${esc(r.sa)} · ${esc(r.address)}</div><div class="meta">Imóvel: ${esc(r.house||'—')} · ${esc(r.customer||'Sem nome')} · <span class="date">${esc(r.date)}</span></div></div><div><span class="pill ${r.closed?'':'warn'}">${r.closed?'Encerrado':'Em monitoramento'}</span>${r.repeat?' <span class="pill alert">Possível recorrência</span>':''}</div></div><div class="checkpoints">${c.map((x,i)=>`<button class="cp ${x.done?'done':x.due?'due':''}" onclick="mark(${r.id},${i})">${x.done?'✓ ':''}Dia ${x.d}</button>`).join('')}</div>${r.notes?`<div class="note">${esc(r.notes)}</div>`:''}<div class="actions"><button class="secondary smallbtn" onclick="toggleRepeat(${r.id})">${r.repeat?'Remover sinalização':'Sinalizar possível recorrência'}</button><button class="danger smallbtn" onclick="remove(${r.id})">Excluir</button></div></article>`}).join('');
+const today=()=>new Date().toISOString().slice(0,10);
+document.getElementById('date').value=today();
+const statusEl=document.getElementById('connectionStatus');
+function headers(extra={}){return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json',...extra}}
+function decodeRow(row){
+ let meta={};try{meta=JSON.parse(row.acompanhamento||'{}')}catch{}
+ return {id:row.id,sa:row.sa_numero,date:row.data_registro,address:row.endereco,house:meta.house||'',customer:meta.customer||'',notes:row.observacoes||'',checks:Array.isArray(meta.checks)?meta.checks:[false,false,false],closed:meta.closed??(row.acompanhamento==='Encerrado'),repeat:meta.repeat||false,technician:row.tecnico_nome,city:row.cidade,type:row.tipo_servico||'Manutenção'};
 }
+function encodeRecord(r){return {sa_numero:r.sa,tecnico_nome:r.technician, endereco:r.address,cidade:r.city,data_registro:r.date,tipo_servico:r.type||'Manutenção',acompanhamento:JSON.stringify({checks:r.checks,closed:r.closed,repeat:r.repeat,house:r.house,customer:r.customer,status:r.closed?'Encerrado':'Em monitoramento'}),observacoes:r.notes||null,updated_at:new Date().toISOString()}}
+async function cloudFetch(method='GET',path='',body=null,prefer=''){
+ let url=SUPABASE_URL+'/rest/v1/'+TABLE+path;
+ let opts={method,headers:headers(prefer?{'Prefer':prefer}:{}),body:body?JSON.stringify(body):undefined};
+ let res=await fetch(url,opts);if(!res.ok){let msg=await res.text();throw new Error(msg||('HTTP '+res.status))}
+ return res.status===204?null:res.json();
+}
+async function loadCloud(){try{let rows=await cloudFetch('GET','?select=*&order=created_at.desc');data=rows.map(decodeRow);localStorage.setItem(KEY,JSON.stringify(data));statusEl.textContent='Conectado à base online · dados compartilhados';render()}catch(e){statusEl.textContent='Falha ao carregar online: '+e.message;console.error(e);}}
+function daysSince(d){return Math.floor((new Date(today()+'T00:00:00')-new Date(d+'T00:00:00'))/86400000)}
+function dueCP(r){let elapsed=daysSince(r.date);return [0,15,30].map((d,i)=>({d,done:r.checks[i],due:elapsed>=d&&!r.checks[i]&&elapsed<=30}))}
+document.getElementById('form').onsubmit=async e=>{e.preventDefault();let r={sa:sa.value.trim(),date:date.value,address:address.value.trim(),house:house.value.trim(),customer:customer.value.trim(),notes:notes.value.trim(),checks:[false,false,false],closed:false,repeat:false,technician:technician.value.trim(),city:city.value.trim(),type:'Manutenção'};
+try{await cloudFetch('POST','',encodeRecord(r),'return=representation');await loadCloud();e.target.reset();date.value=today();statusEl.textContent='SA adicionada à base online!'}catch(err){alert('Não foi possível salvar na nuvem: '+err.message);statusEl.textContent='Erro ao salvar online';console.error(err)}};
+
+async function mark(id,i){let r=data.find(x=>x.id===id);if(!r)return;r.checks[i]=!r.checks[i];if(i===2&&r.checks[2])r.closed=true;if(i===2&&!r.checks[2])r.closed=false;await saveUpdate(r)}
+async function toggleRepeat(id){let r=data.find(x=>x.id===id);if(!r)return;r.repeat=!r.repeat;await saveUpdate(r)}
+async function saveUpdate(r){try{await cloudFetch('PATCH','?id=eq.'+encodeURIComponent(r.id),encodeRecord(r));await loadCloud()}catch(e){alert('Falha ao atualizar: '+e.message);console.error(e)}}
+async function remove(id){if(confirm('Excluir este registro da base compartilhada?')){try{await cloudFetch('DELETE','?id=eq.'+encodeURIComponent(id));await loadCloud()}catch(e){alert('Falha ao excluir: '+e.message)}}}
+function exportData(){let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='monitor30d-backup.json';a.click();URL.revokeObjectURL(a.href)}
+function render(){let q=document.getElementById('search').value.toLowerCase(),f=document.getElementById('filter').value;let filtered=data.filter(r=>([r.sa,r.address,r.house,r.customer,r.technician,r.city].join(' ').toLowerCase().includes(q))&&(f==='all'||(f==='active'&&!r.closed)||(f==='closed'&&r.closed)||(f==='repeat'&&r.repeat)));document.getElementById('active').textContent=data.filter(r=>!r.closed).length;document.getElementById('pending').textContent=data.filter(r=>!r.closed&&dueCP(r).some(c=>c.due)).length;document.getElementById('repeat').textContent=data.filter(r=>r.repeat).length;document.getElementById('closed').textContent=data.filter(r=>r.closed).length;let el=document.getElementById('records');if(!filtered.length){el.innerHTML='<div class="empty">Nenhum registro encontrado.</div>';return}el.innerHTML=filtered.map(r=>{let c=dueCP(r);return `<article class="item"><div class="itemtop"><div><div class="name">SA ${esc(r.sa)} · ${esc(r.address)}</div><div class="meta">Imóvel: ${esc(r.house||'—')} · ${esc(r.customer||'Sem nome')} · <span class="date">${esc(r.date)}</span></div><div class="meta">Técnico: ${esc(r.technician||'—')} · ${esc(r.city||'—')}</div></div><div><span class="pill ${r.closed?'':'warn'}">${r.closed?'Encerrado':'Em monitoramento'}</span>${r.repeat?' <span class="pill alert">Possível recorrência</span>':''}</div></div><div class="checkpoints">${c.map((x,i)=>`<button class="cp ${x.done?'done':x.due?'due':''}" onclick="mark('${r.id}',${i})">${x.done?'✓ ':''}Dia ${x.d}</button>`).join('')}</div>${r.notes?`<div class="note">${esc(r.notes)}</div>`:''}<div class="actions"><button class="secondary smallbtn" onclick="toggleRepeat('${r.id}')">${r.repeat?'Remover sinalização':'Sinalizar possível recorrência'}</button><button class="danger smallbtn" onclick="remove('${r.id}')">Excluir</button></div></article>`}).join('')}
 function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-loadData();render();
+document.getElementById('search').addEventListener('input',render);
+document.getElementById('filter').addEventListener('change',render);
+loadCloud();
 </script></body></html>
